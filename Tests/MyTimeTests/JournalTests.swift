@@ -16,25 +16,27 @@ final class JournalTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmpURL)
     }
 
+    private func day(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var c = DateComponents(); c.year = y; c.month = m; c.day = d
+        return Calendar.current.date(from: c)!
+    }
+
     func testAppendAndRead() {
-        let start = Date(timeIntervalSince1970: 1_700_000_000)
-        let end = start.addingTimeInterval(3600)
-        let e = TimerEntry(startTime: start, client: "ClientA", activity: "Dev",
-                           endTime: end, durationSeconds: 3600, pausedSeconds: 0)
+        let e = TimerEntry(date: day(2026, 4, 18), client: "ClientA",
+                           activity: "Dev", durationSeconds: 3600)
         journal.appendNew(e)
         let read = journal.readAll()
         XCTAssertEqual(read.count, 1)
+        XCTAssertEqual(read[0].date, day(2026, 4, 18))
         XCTAssertEqual(read[0].client, "ClientA")
         XCTAssertEqual(read[0].activity, "Dev")
         XCTAssertEqual(read[0].durationSeconds, 3600)
     }
 
     func testMultipleAppendsPreserveOrder() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
         for i in 0..<3 {
-            let s = t0.addingTimeInterval(TimeInterval(i * 1000))
-            let e = TimerEntry(startTime: s, client: "C\(i)", activity: "",
-                               endTime: s.addingTimeInterval(60), durationSeconds: 60, pausedSeconds: 0)
+            let e = TimerEntry(date: day(2026, 4, 18 + i), client: "C\(i)",
+                               activity: "", durationSeconds: 60)
             journal.appendNew(e)
         }
         let read = journal.readAll()
@@ -43,12 +45,30 @@ final class JournalTests: XCTestCase {
     }
 
     func testCSVEscapingForClientWithComma() {
-        let start = Date(timeIntervalSince1970: 1_700_000_000)
-        let e = TimerEntry(startTime: start, client: "A, Inc.", activity: "x\"y",
-                           endTime: start.addingTimeInterval(60), durationSeconds: 60, pausedSeconds: 0)
+        let e = TimerEntry(date: day(2026, 4, 18), client: "A, Inc.",
+                           activity: "x\"y", durationSeconds: 60)
         journal.appendNew(e)
         let read = journal.readAll()
         XCTAssertEqual(read[0].client, "A, Inc.")
         XCTAssertEqual(read[0].activity, "x\"y")
+    }
+
+    func testMigrateLegacyFormat() {
+        // Pre-seed the file with the old 6-column header + one row, then
+        // let the Journal migrate it on first access.
+        let legacy = """
+        START_TIME,CLIENT,ACTIVITY,END_TIME,DURATION_SECONDS,PAUSED_SECONDS
+        2026-04-18T23:26:27,MyApps,Travel,2026-04-19T07:31:17,1670,27420
+        """
+        try? legacy.write(to: tmpURL, atomically: true, encoding: .utf8)
+        let read = journal.readAll()
+        XCTAssertEqual(read.count, 1)
+        XCTAssertEqual(read[0].date, day(2026, 4, 18))
+        XCTAssertEqual(read[0].client, "MyApps")
+        XCTAssertEqual(read[0].activity, "Travel")
+        XCTAssertEqual(read[0].durationSeconds, 1670)
+        // The on-disk file should now have the new header.
+        let text = try? String(contentsOf: tmpURL, encoding: .utf8)
+        XCTAssertTrue(text?.hasPrefix("DATE,CLIENT,ACTIVITY,DURATION_SECONDS") ?? false)
     }
 }

@@ -6,25 +6,13 @@ enum TimerState: String {
     case paused
 }
 
-/// A finalized row in `journal.csv`. Always has a real END_TIME (no parens)
-/// and a computed DURATION_SECONDS.
+/// A finalized row in `journal.csv`. One row per timer close, attributed
+/// to the calendar DATE on which the timer started.
 struct TimerEntry: Equatable {
-    var startTime: Date
+    var date: Date   // local start-of-day
     var client: String
     var activity: String
-    var endTime: Date
     var durationSeconds: Int
-    var pausedSeconds: Int
-
-    init(startTime: Date, client: String, activity: String = "",
-         endTime: Date, durationSeconds: Int, pausedSeconds: Int = 0) {
-        self.startTime = startTime
-        self.client = client
-        self.activity = activity
-        self.endTime = endTime
-        self.durationSeconds = durationSeconds
-        self.pausedSeconds = pausedSeconds
-    }
 }
 
 /// The one-and-only row in `current.csv` representing the in-flight timer.

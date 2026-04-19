@@ -2,17 +2,21 @@ import XCTest
 @testable import MyTime
 
 final class ReportsTests: XCTestCase {
+    private func day(_ offsetDays: Int, from now: Date) -> Date {
+        let cal = Calendar.current
+        let base = cal.startOfDay(for: now)
+        return cal.date(byAdding: .day, value: offsetDays, to: base)!
+    }
+
     func testGroupByClient() {
-        let t0 = Date()
+        let now = Date()
+        let today = Calendar.current.startOfDay(for: now)
         let entries = [
-            TimerEntry(startTime: t0.addingTimeInterval(-3600), client: "A", activity: "Dev",
-                       endTime: t0.addingTimeInterval(-1800), durationSeconds: 1800, pausedSeconds: 0),
-            TimerEntry(startTime: t0.addingTimeInterval(-1000), client: "B", activity: "Dev",
-                       endTime: t0.addingTimeInterval(-400), durationSeconds: 600, pausedSeconds: 0),
-            TimerEntry(startTime: t0.addingTimeInterval(-300), client: "A", activity: "Meeting",
-                       endTime: t0.addingTimeInterval(-100), durationSeconds: 200, pausedSeconds: 0)
+            TimerEntry(date: today, client: "A", activity: "Dev", durationSeconds: 1800),
+            TimerEntry(date: today, client: "B", activity: "Dev", durationSeconds: 600),
+            TimerEntry(date: today, client: "A", activity: "Meeting", durationSeconds: 200)
         ]
-        let result = Reports.compute(entries: entries, period: .day, grouping: .client, now: t0)
+        let result = Reports.compute(entries: entries, period: .day, grouping: .client, now: now)
         XCTAssertEqual(result.totalEntries, 3)
         XCTAssertEqual(result.totalSeconds, 2600)
         XCTAssertEqual(result.rows.first?.group, "A")
@@ -26,12 +30,11 @@ final class ReportsTests: XCTestCase {
 
     func testPeriodFilters() {
         let now = Date()
-        let old = Date(timeIntervalSinceNow: -60 * 24 * 60 * 60)
         let entries = [
-            TimerEntry(startTime: old, client: "Old", activity: "",
-                       endTime: old.addingTimeInterval(100), durationSeconds: 100, pausedSeconds: 0),
-            TimerEntry(startTime: now.addingTimeInterval(-3600), client: "New", activity: "",
-                       endTime: now.addingTimeInterval(-1800), durationSeconds: 1800, pausedSeconds: 0)
+            TimerEntry(date: day(-60, from: now), client: "Old",
+                       activity: "", durationSeconds: 100),
+            TimerEntry(date: day(-1, from: now), client: "New",
+                       activity: "", durationSeconds: 1800)
         ]
         let week = Reports.compute(entries: entries, period: .week, grouping: .client, now: now)
         XCTAssertEqual(week.totalEntries, 1)

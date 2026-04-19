@@ -9,12 +9,13 @@ final class TimerController: ObservableObject {
     let journal: Journal
     let currentStore: CurrentStore
     private var ticker: Timer?
-    private(set) var lastStopTime: Date = Date()
+    private(set) var lastStopTime: Date
 
-    init(journal: Journal = Journal(), currentStore: CurrentStore = CurrentStore()) {
+    init(journal: Journal = Journal(), currentStore: CurrentStore = CurrentStore(), now: Date = Date()) {
         self.journal = journal
         self.currentStore = currentStore
-        recoverOnBoot()
+        self.lastStopTime = now
+        recoverOnBoot(now: now)
         startTicker()
     }
 
@@ -30,38 +31,25 @@ final class TimerController: ObservableObject {
 
     // MARK: - Boot recovery
     //
-    // On every launch, any leftover in-flight timer is recovered into the
-    // PAUSED state — the work is preserved, not closed. endTime stays at
-    // whatever the last tick / heartbeat wrote, so the user can resume
-    // (adds the away time to PAUSED_SECONDS) or stop without losing context.
-    //
-    // Idempotency guard: if current.csv's startTime matches the last journal
-    // row's startTime, it means a previous stop() appended the journal row
-    // but crashed before removing current.csv. Just delete current.csv.
-    private func recoverOnBoot() {
-        guard let cur = currentStore.load() else {
-            if let last = journal.readAll().last { lastStopTime = last.endTime }
-            return
-        }
-        let entries = journal.readAll()
-        if let last = entries.last, last.startTime == cur.startTime {
-            currentStore.clear()
-            lastStopTime = last.endTime
-            return
-        }
+    // A leftover current.csv is either: (a) stale across midnight — close
+    // it and go inactive; or (b) still on today — recover as paused so
+    // the user can resume, adding away time to pausedSeconds, or stop.
+    private func recoverOnBoot(now: Date) {
+        guard let cur = currentStore.load() else { return }
+        currentEntry = cur
+        state = (cur.status == .active) ? .active : .paused
+        if closeIfCrossedMidnight(now: now) { return }
         var recovered = cur
         recovered.status = .paused
-        currentStore.save(recovered)
         currentEntry = recovered
         state = .paused
-        lastStopTime = recovered.endTime
+        currentStore.save(recovered)
     }
 
     // MARK: - Internal tick
     //
     // Advance the in-flight entry's endTime to `now`. While paused, the
-    // elapsed delta is added to pausedSeconds. Called by every mutating
-    // command so the current.csv view is always fresh.
+    // elapsed delta is added to pausedSeconds.
     @discardableResult
     private func tick(now: Date) -> CurrentEntry? {
         guard var e = currentEntry else { return nil }
@@ -79,39 +67,37 @@ final class TimerController: ObservableObject {
     // MARK: - Heartbeat
 
     func heartbeat(now: Date = Date()) {
-        guard state == .active, currentEntry != nil else { return }
-        splitIfCrossedMidnight(now: now)
+        guard currentEntry != nil else { return }
+        if closeIfCrossedMidnight(now: now) { return }
+        guard state == .active else { return }
         _ = tick(now: now)
         if let e = currentEntry { currentStore.save(e) }
     }
 
-    /// If the current entry spans one or more midnights before `now`, close
-    /// it at midnight (append to journal) and open a fresh current entry
-    /// starting at that midnight. Loops for the unusual multi-midnight case.
-    private func splitIfCrossedMidnight(now: Date) {
-        guard var e = currentEntry else { return }
+    /// If the entry's startTime is on a different calendar day than `now`,
+    /// or its endTime has drifted past startTime's day, close it at endTime.
+    @discardableResult
+    private func closeIfCrossedMidnight(now: Date) -> Bool {
+        guard let e = currentEntry else { return false }
         let cal = Calendar.current
-        while let midnight = Self.nextMidnight(after: e.startTime, cal: cal),
-              midnight <= now {
-            // Close at midnight.
-            let dur = max(0, Int(midnight.timeIntervalSince(e.startTime)) - e.pausedSeconds)
-            let closed = TimerEntry(
-                startTime: e.startTime, client: e.client, activity: e.activity,
-                endTime: midnight, durationSeconds: dur, pausedSeconds: e.pausedSeconds
-            )
-            journal.appendNew(closed)
-            // Open a fresh current entry at midnight with same identity.
-            e = CurrentEntry(startTime: midnight, client: e.client, activity: e.activity,
-                             status: .active, endTime: midnight, pausedSeconds: 0)
-            currentEntry = e
-            currentStore.save(e)
-            lastStopTime = midnight
-        }
+        let sameDay = cal.isDate(e.startTime, inSameDayAs: now)
+                      && cal.isDate(e.startTime, inSameDayAs: e.endTime)
+        if sameDay { return false }
+        finalize(e)
+        return true
     }
 
-    private static func nextMidnight(after date: Date, cal: Calendar) -> Date? {
-        let startOfDay = cal.startOfDay(for: date)
-        return cal.date(byAdding: .day, value: 1, to: startOfDay)
+    /// Append one journal row for the closed entry and clear current.csv.
+    /// The row is attributed to the start-of-day of the entry's startTime.
+    private func finalize(_ e: CurrentEntry) {
+        let dur = max(0, Int(e.endTime.timeIntervalSince(e.startTime)) - e.pausedSeconds)
+        let date = Calendar.current.startOfDay(for: e.startTime)
+        journal.appendNew(TimerEntry(date: date, client: e.client,
+                                     activity: e.activity, durationSeconds: dur))
+        currentStore.clear()
+        currentEntry = nil
+        state = .inactive
+        lastStopTime = e.endTime
     }
 
     // MARK: - Derived
@@ -202,15 +188,6 @@ final class TimerController: ObservableObject {
         if state == .paused { resume(now: now) }
         _ = tick(now: now)
         guard let e = currentEntry else { return }
-        let dur = max(0, Int(e.endTime.timeIntervalSince(e.startTime)) - e.pausedSeconds)
-        let closed = TimerEntry(
-            startTime: e.startTime, client: e.client, activity: e.activity,
-            endTime: e.endTime, durationSeconds: dur, pausedSeconds: e.pausedSeconds
-        )
-        journal.appendNew(closed)
-        currentStore.clear()
-        currentEntry = nil
-        state = .inactive
-        lastStopTime = e.endTime
+        finalize(e)
     }
 }

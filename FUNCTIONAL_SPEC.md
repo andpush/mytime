@@ -31,10 +31,13 @@ use RFC-4180-style escaping (quotes, commas, newlines in fields).
 
 - **journal.csv** — append-only history of FINALIZED timers only.
   - Header row on first creation; every subsequent write is an append.
-  - Format: `START_TIME, CLIENT, ACTIVITY, END_TIME, DURATION_SECONDS, PAUSED_SECONDS`
-  - Every row has a real `END_TIME` and a computed `DURATION_SECONDS`
-    (`END_TIME − START_TIME − PAUSED_SECONDS`). There is no "in-flight"
-    encoding here — nothing is ever mutated in this file after append.
+  - Format: `DATE, CLIENT, ACTIVITY, DURATION_SECONDS`
+  - `DATE` is the local calendar day (`YYYY-MM-DD`) on which the timer
+    started. `DURATION_SECONDS` is the worked time at close
+    (`END_TIME − START_TIME − PAUSED_SECONDS`, clamped to ≥ 0).
+  - Nothing is mutated after append. Files written by an earlier
+    6-column format are migrated on first read (each row collapses to
+    its start-date + duration).
 - **current.csv** — single-row view of the in-flight timer.
   - Exists while a timer is ACTIVE or PAUSED; deleted when the timer stops.
   - Format: `START_TIME, CLIENT, ACTIVITY, STATUS, END_TIME, PAUSED_SECONDS`
@@ -60,33 +63,34 @@ single `current.csv` row.
 On every launch, MyTime inspects `current.csv`:
 
 - If it doesn't exist, the previous session stopped cleanly — nothing to do.
-- If it exists, the previous process did not exit cleanly. Recover the
-  in-flight timer into the PAUSED state: set `STATUS=paused` in
-  `current.csv` while preserving `START_TIME`, `END_TIME`, and
-  `PAUSED_SECONDS`. The work is not closed — the user can resume it
-  (the away time is added to `PAUSED_SECONDS`) or stop it.
-- Idempotency guard: if the row's `START_TIME` matches the last row of
-  `journal.csv`, treat it as a leftover from an incomplete close (the
-  journal append succeeded, but `current.csv` wasn't removed). Just
-  delete `current.csv`.
+- If the entry spans midnight (its `START_TIME` is on a calendar day
+  earlier than `now`, or `END_TIME` has drifted past `START_TIME`'s day),
+  close it (see below) and go INACTIVE.
+- Otherwise, recover in PAUSED state, preserving `START_TIME`,
+  `END_TIME`, and `PAUSED_SECONDS`. The user can resume (away time is
+  added to `PAUSED_SECONDS`) or stop.
 
-Heartbeats only run while the timer is ACTIVE — they do not advance
-`END_TIME` of a paused row.
+Heartbeats advance `END_TIME` only while the timer is ACTIVE. While paused
+the row is untouched by heartbeats, except for the day-boundary close
+described below.
 
-### Day-boundary split during heartbeats
+### Day-boundary close on boot and heartbeat
 
-When an ACTIVE timer crosses midnight (local time), the next heartbeat
-splits it into two rows so reports can attribute time to the correct day:
+Every journal row is attributed to a single calendar day. To enforce
+this, both boot recovery and every heartbeat check whether the current
+entry spans a day boundary. If so, the entry is closed:
 
-1. Close the in-flight entry at `00:00:00` by appending it to
-   `journal.csv` with `DURATION_SECONDS` up to that midnight.
-2. Rewrite `current.csv` with a fresh entry starting at `00:00:00`,
-   same `CLIENT` and `ACTIVITY`, `PAUSED_SECONDS = 0`.
-3. Continue tracking on the new entry; the heartbeat completes on it.
+1. Append one row to `journal.csv` with `DATE = start-of-day(START_TIME)`
+   and `DURATION_SECONDS = max(0, END_TIME − START_TIME − PAUSED_SECONDS)`.
+2. Delete `current.csv`. The timer goes INACTIVE.
 
-If multiple midnights have been crossed (e.g. after a long system sleep
-while the timer was active), the split is applied once per crossed
-midnight.
+Semantics per state:
+
+- **PAUSED**: `END_TIME` is the pause moment — no time is lost.
+- **ACTIVE**: `END_TIME` is the last heartbeat moment. Anything between
+  the last heartbeat and midnight is not counted — the timer is treated
+  as having stopped at the last known alive moment. Up to one heartbeat
+  interval of tracking is lost around midnight.
 
 ## Main Menu Structure
 

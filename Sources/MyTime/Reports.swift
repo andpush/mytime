@@ -56,10 +56,12 @@ enum Reports {
     static func compute(entries: [TimerEntry], period: ReportPeriod, grouping: ReportGrouping,
                         now: Date = Date(), customStart: Date? = nil, customEnd: Date? = nil) -> ReportResult {
         let (from, to) = range(for: period, now: now, customStart: customStart, customEnd: customEnd)
+        let cal = Calendar.current
+        let fromDay = cal.startOfDay(for: from)
         var filtered: [TimerEntry] = []
         let discarded = 0
         for e in entries {
-            if e.startTime < from || e.startTime > to { continue }
+            if e.date < fromDay || e.date > to { continue }
             filtered.append(e)
         }
 
@@ -68,10 +70,9 @@ enum Reports {
         var groups: [String: Int] = [:]
         var sortDates: [String: Date] = [:]
         for e in filtered {
-            let (key, sortDate) = Self.groupKey(for: e.startTime, grouping: grouping, client: e.client, activity: e.activity)
+            let (key, sortDate) = Self.groupKey(for: e.date, grouping: grouping, client: e.client, activity: e.activity)
             groups[key, default: 0] += e.durationSeconds
             if let d = sortDate {
-                // keep earliest date for stable chronological sort
                 if let prev = sortDates[key] {
                     if d < prev { sortDates[key] = d }
                 } else {

@@ -14,13 +14,25 @@ enum Storage {
     }
 }
 
-// MARK: - ISO date formatting (local, no timezone)
+// MARK: - ISO date/time formatting (local, no timezone)
 
 enum LocalISO {
     static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        f.timeZone = TimeZone.current
+        return f
+    }()
+    static func string(from date: Date) -> String { formatter.string(from: date) }
+    static func date(from string: String) -> Date? { formatter.date(from: string) }
+}
+
+enum LocalDate {
+    static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
         f.timeZone = TimeZone.current
         return f
     }()
@@ -98,11 +110,15 @@ enum CSV {
 // MARK: - Journal I/O
 //
 // journal.csv is append-only and contains ONLY closed (finalized) rows.
-// Every row has a real END_TIME, a computed DURATION_SECONDS, and
-// PAUSED_SECONDS. In-flight timers live in current.csv, not here.
+// Each row is one timer close, attributed to the calendar DATE on which
+// the timer started. In-flight timers live in current.csv, not here.
+//
+// A pre-existing journal from an earlier format (START_TIME,CLIENT,ACTIVITY,
+// END_TIME,DURATION_SECONDS,PAUSED_SECONDS) is migrated on first access by
+// collapsing each row to its start date + duration.
 
 final class Journal {
-    static let header = "START_TIME,CLIENT,ACTIVITY,END_TIME,DURATION_SECONDS,PAUSED_SECONDS"
+    static let header = "DATE,CLIENT,ACTIVITY,DURATION_SECONDS"
 
     let url: URL
     init(url: URL = Storage.journalURL) { self.url = url }
@@ -111,7 +127,28 @@ final class Journal {
         Storage.ensureDir()
         if !FileManager.default.fileExists(atPath: url.path) {
             try? (Journal.header + "\n").write(to: url, atomically: true, encoding: .utf8)
+            return
         }
+        migrateLegacyFormatIfNeeded()
+    }
+
+    private func migrateLegacyFormatIfNeeded() {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let rows = CSV.parseAll(text)
+        let firstField = rows.first?.first?.uppercased() ?? ""
+        if firstField == "DATE" || firstField.isEmpty { return }
+        if firstField != "START_TIME" { return }
+        var out: [String] = [Journal.header]
+        for (idx, row) in rows.enumerated() where idx > 0 {
+            if row.isEmpty || (row.count == 1 && row[0].isEmpty) { continue }
+            let padded = row + Array(repeating: "", count: max(0, 6 - row.count))
+            guard let start = LocalISO.date(from: padded[0]) else { continue }
+            let duration = Int(padded[4]) ?? 0
+            let date = Calendar.current.startOfDay(for: start)
+            out.append(Self.format(TimerEntry(date: date, client: padded[1],
+                                              activity: padded[2], durationSeconds: duration)))
+        }
+        try? (out.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
     func readAll() -> [TimerEntry] {
@@ -119,19 +156,15 @@ final class Journal {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         let rows = CSV.parseAll(text)
         var entries: [TimerEntry] = []
-        let hasHeader = rows.first?.first?.uppercased() == "START_TIME"
+        let hasHeader = rows.first?.first?.uppercased() == "DATE"
         for (idx, row) in rows.enumerated() {
             if hasHeader && idx == 0 { continue }
             if row.isEmpty || (row.count == 1 && row[0].isEmpty) { continue }
-            let padded = row + Array(repeating: "", count: max(0, 6 - row.count))
-            guard let start = LocalISO.date(from: padded[0]),
-                  let end = LocalISO.date(from: padded[3]) else { continue }
-            let duration = Int(padded[4]) ?? 0
-            let paused = Int(padded[5]) ?? 0
-            entries.append(TimerEntry(
-                startTime: start, client: padded[1], activity: padded[2],
-                endTime: end, durationSeconds: duration, pausedSeconds: paused
-            ))
+            let padded = row + Array(repeating: "", count: max(0, 4 - row.count))
+            guard let date = LocalDate.date(from: padded[0]) else { continue }
+            let duration = Int(padded[3]) ?? 0
+            entries.append(TimerEntry(date: date, client: padded[1], activity: padded[2],
+                                      durationSeconds: duration))
         }
         return entries
     }
@@ -150,7 +183,6 @@ final class Journal {
                 // fall through to rewrite on any I/O failure
             }
         }
-        // Fallback: rewrite the whole file.
         var all = readAll()
         all.append(entry)
         var lines: [String] = [Journal.header]
@@ -160,12 +192,10 @@ final class Journal {
 
     static func format(_ e: TimerEntry) -> String {
         return [
-            CSV.escape(LocalISO.string(from: e.startTime)),
+            CSV.escape(LocalDate.string(from: e.date)),
             CSV.escape(e.client),
             CSV.escape(e.activity),
-            CSV.escape(LocalISO.string(from: e.endTime)),
-            CSV.escape(String(e.durationSeconds)),
-            CSV.escape(String(e.pausedSeconds))
+            CSV.escape(String(e.durationSeconds))
         ].joined(separator: ",")
     }
 }
@@ -173,7 +203,8 @@ final class Journal {
 // MARK: - Current-timer I/O
 //
 // current.csv holds at most one row — the in-flight timer. It is written
-// on start, pause, resume, heartbeat, and midnight-split; deleted on stop.
+// on start, pause, resume, and heartbeat; deleted on stop or when closed
+// at a day boundary (see TimerController.closeIfCrossedMidnight).
 
 final class CurrentStore {
     static let header = "START_TIME,CLIENT,ACTIVITY,STATUS,END_TIME,PAUSED_SECONDS"

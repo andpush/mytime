@@ -24,18 +24,33 @@ final class TimerControllerTests: XCTestCase {
         try? FileManager.default.removeItem(at: currentURL)
     }
 
+    /// A stable local-noon date used by tests that mix boot simulation with
+    /// synthetic `now` values. Noon keeps offsets up to several hours on the
+    /// same calendar day regardless of the machine's timezone.
+    private func localNoon(year: Int = 2026, month: Int = 4, day: Int = 18) -> Date {
+        var c = DateComponents()
+        c.year = year; c.month = month; c.day = day
+        c.hour = 12; c.minute = 0
+        return Calendar.current.date(from: c)!
+    }
+
+    private func startOfDay(_ d: Date) -> Date {
+        Calendar.current.startOfDay(for: d)
+    }
+
+    // MARK: - Commands
+
     func testStartSetsActive() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", activity: "X", now: t0)
         XCTAssertEqual(ctl.state, .active)
         XCTAssertEqual(ctl.currentEntry?.client, "A")
         XCTAssertEqual(ctl.currentEntry?.status, .active)
-        // current.csv persisted
         XCTAssertNotNil(currentStore.load())
     }
 
     func testPauseResumeAccumulatesPausedSeconds() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.pause(now: t0.addingTimeInterval(100))
         XCTAssertEqual(ctl.state, .paused)
@@ -45,7 +60,7 @@ final class TimerControllerTests: XCTestCase {
     }
 
     func testStopCalculatesDuration() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.pause(now: t0.addingTimeInterval(100))
         ctl.resume(now: t0.addingTimeInterval(160))
@@ -53,12 +68,13 @@ final class TimerControllerTests: XCTestCase {
         XCTAssertEqual(ctl.state, .inactive)
         XCTAssertNil(currentStore.load())
         let entries = journal.readAll()
-        XCTAssertEqual(entries.last?.durationSeconds, 940) // 1000 - 60 paused
-        XCTAssertEqual(entries.last?.pausedSeconds, 60)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, startOfDay(t0))
+        XCTAssertEqual(entries[0].durationSeconds, 940) // 1000 - 60 paused
     }
 
     func testStartNewAutoStopsExisting() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.startNew(client: "B", now: t0.addingTimeInterval(300))
         let entries = journal.readAll()
@@ -69,22 +85,23 @@ final class TimerControllerTests: XCTestCase {
     }
 
     func testStopFromPausedResumesFirst() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.pause(now: t0.addingTimeInterval(100))
         ctl.stop(now: t0.addingTimeInterval(200))
         let entries = journal.readAll()
-        // paused for 100s (from 100 to stop@200 counted as paused), then resume+stop.
-        XCTAssertEqual(entries.last?.pausedSeconds, 100)
-        XCTAssertEqual(entries.last?.durationSeconds, 100) // 200 - 100 paused
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].durationSeconds, 100) // 200 - 100 paused
     }
 
+    // MARK: - Boot recovery
+
     func testBootRecoversPausedAsPaused() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", activity: "Dev", now: t0)
         ctl.pause(now: t0.addingTimeInterval(500))
-        // Simulate crash → new controller reads the leftover current.csv.
-        let ctl2 = TimerController(journal: journal, currentStore: currentStore)
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore,
+                                   now: t0.addingTimeInterval(600))
         XCTAssertEqual(ctl2.state, .paused)
         XCTAssertTrue(journal.readAll().isEmpty)
         let cur = currentStore.load()
@@ -94,10 +111,9 @@ final class TimerControllerTests: XCTestCase {
     }
 
     func testBootRecoversActiveAsPausedPreservingEndTime() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
-        // Simulate crash without heartbeat. current.csv endTime == startTime.
-        let ctl2 = TimerController(journal: journal, currentStore: currentStore)
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore, now: t0)
         XCTAssertEqual(ctl2.state, .paused)
         XCTAssertTrue(journal.readAll().isEmpty)
         let cur = currentStore.load()
@@ -106,24 +122,25 @@ final class TimerControllerTests: XCTestCase {
     }
 
     func testBootResumeAfterCrashAccumulatesAwayTime() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.heartbeat(now: t0.addingTimeInterval(3600))
-        // Crash — boot recovers as paused at endTime=3600s.
-        let ctl2 = TimerController(journal: journal, currentStore: currentStore)
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore,
+                                   now: t0.addingTimeInterval(3600))
         XCTAssertEqual(ctl2.state, .paused)
-        // User comes back an hour later and resumes, then stops immediately.
         ctl2.resume(now: t0.addingTimeInterval(7200))
         ctl2.stop(now: t0.addingTimeInterval(7200))
         let entries = journal.readAll()
         XCTAssertEqual(entries.count, 1)
         // 1h worked + 1h away-paused. duration = 7200 - 3600 paused = 3600.
-        XCTAssertEqual(entries[0].pausedSeconds, 3600)
         XCTAssertEqual(entries[0].durationSeconds, 3600)
+        XCTAssertEqual(entries[0].date, startOfDay(t0))
     }
 
+    // MARK: - Heartbeat
+
     func testHeartbeatUpdatesCurrentStoreNotJournal() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.heartbeat(now: t0.addingTimeInterval(3600))
         XCTAssertEqual(ctl.state, .active)
@@ -134,63 +151,128 @@ final class TimerControllerTests: XCTestCase {
     }
 
     func testBootAfterHeartbeatRecoversPausedAtHeartbeatTime() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", now: t0)
         ctl.heartbeat(now: t0.addingTimeInterval(3600))
-        let ctl2 = TimerController(journal: journal, currentStore: currentStore)
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore,
+                                   now: t0.addingTimeInterval(3600))
         XCTAssertEqual(ctl2.state, .paused)
         XCTAssertTrue(journal.readAll().isEmpty)
         XCTAssertEqual(ctl2.currentEntry?.endTime, t0.addingTimeInterval(3600))
     }
 
-    func testHeartbeatSplitsAcrossMidnight() {
-        let cal = Calendar.current
-        var comps = DateComponents()
-        comps.year = 2026; comps.month = 4; comps.day = 18
-        comps.hour = 23; comps.minute = 30
-        let t0 = cal.date(from: comps)!
-        ctl.startNew(client: "A", activity: "Dev", now: t0)
-        let t1 = t0.addingTimeInterval(60 * 60) // 00:30 next day
-        ctl.heartbeat(now: t1)
+    // MARK: - Midnight close
 
-        // First day closed into journal.
+    func testHeartbeatClosesActiveAcrossMidnight() {
+        let cal = Calendar.current
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 18; c.hour = 23; c.minute = 30
+        let t0 = cal.date(from: c)!
+        ctl.startNew(client: "A", activity: "Dev", now: t0)
+        let tMid = t0.addingTimeInterval(20 * 60)  // 23:50
+        ctl.heartbeat(now: tMid)
+        let tNext = t0.addingTimeInterval(60 * 60) // 00:30 next day
+        ctl.heartbeat(now: tNext)
+
         let entries = journal.readAll()
         XCTAssertEqual(entries.count, 1)
-        let midnight = cal.startOfDay(for: t1)
-        XCTAssertEqual(entries[0].endTime, midnight)
-        XCTAssertEqual(entries[0].durationSeconds, 1800)
-
-        // Second day lives in current.csv as a fresh active entry.
-        let cur = currentStore.load()
-        XCTAssertEqual(cur?.startTime, midnight)
-        XCTAssertEqual(cur?.client, "A")
-        XCTAssertEqual(cur?.activity, "Dev")
-        XCTAssertEqual(cur?.status, .active)
-        XCTAssertEqual(cur?.endTime, t1)
-        XCTAssertEqual(ctl.state, .active)
-        XCTAssertEqual(ctl.currentEntry?.startTime, midnight)
+        XCTAssertEqual(entries[0].date, cal.startOfDay(for: t0))
+        XCTAssertEqual(entries[0].client, "A")
+        XCTAssertEqual(entries[0].activity, "Dev")
+        XCTAssertEqual(entries[0].durationSeconds, 20 * 60)
+        XCTAssertNil(currentStore.load())
+        XCTAssertEqual(ctl.state, .inactive)
+        XCTAssertNil(ctl.currentEntry)
     }
 
-    func testBootIdempotentAfterCompletedStop() {
-        // Stop appended to journal and cleared current.csv already. A second
-        // boot must not append a duplicate row even if current.csv somehow
-        // survived (defensive guard via startTime match).
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
-        ctl.startNew(client: "A", now: t0)
-        ctl.stop(now: t0.addingTimeInterval(100))
-        let beforeCount = journal.readAll().count
-        // Simulate a stale current.csv whose start matches last journal row.
-        let stale = CurrentEntry(startTime: t0, client: "A", activity: "",
-                                 status: .active, endTime: t0.addingTimeInterval(50), pausedSeconds: 0)
-        currentStore.save(stale)
-        let ctl2 = TimerController(journal: journal, currentStore: currentStore)
+    func testHeartbeatClosesPausedAcrossMidnight() {
+        let cal = Calendar.current
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 18; c.hour = 22; c.minute = 0
+        let t0 = cal.date(from: c)!
+        ctl.startNew(client: "A", activity: "Dev", now: t0)
+        let tPause = t0.addingTimeInterval(60 * 60)  // 23:00
+        ctl.pause(now: tPause)
+        let tNext = t0.addingTimeInterval(3 * 60 * 60)  // 01:00 next day
+        ctl.heartbeat(now: tNext)
+
+        let entries = journal.readAll()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, cal.startOfDay(for: t0))
+        XCTAssertEqual(entries[0].durationSeconds, 60 * 60)
+        XCTAssertNil(currentStore.load())
+        XCTAssertEqual(ctl.state, .inactive)
+    }
+
+    func testBootClosesActiveLeftoverAcrossMidnight() {
+        let cal = Calendar.current
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 18; c.hour = 22; c.minute = 0
+        let t0 = cal.date(from: c)!
+        ctl.startNew(client: "A", activity: "Dev", now: t0)
+        ctl.heartbeat(now: t0.addingTimeInterval(60 * 60))  // 23:00
+
+        let tBoot = t0.addingTimeInterval(12 * 60 * 60)  // 10:00 next day
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore, now: tBoot)
+
+        let entries = journal.readAll()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, cal.startOfDay(for: t0))
+        XCTAssertEqual(entries[0].durationSeconds, 60 * 60)
         XCTAssertEqual(ctl2.state, .inactive)
-        XCTAssertEqual(journal.readAll().count, beforeCount)
         XCTAssertNil(currentStore.load())
     }
 
+    func testBootClosesPausedLeftoverAcrossMidnight() {
+        let cal = Calendar.current
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 18; c.hour = 22; c.minute = 0
+        let t0 = cal.date(from: c)!
+        ctl.startNew(client: "A", activity: "Dev", now: t0)
+        let tPause = t0.addingTimeInterval(60 * 60)  // 23:00
+        ctl.pause(now: tPause)
+
+        let tBoot = t0.addingTimeInterval(12 * 60 * 60)  // 10:00 next day
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore, now: tBoot)
+
+        let entries = journal.readAll()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, cal.startOfDay(for: t0))
+        XCTAssertEqual(entries[0].durationSeconds, 60 * 60)
+        XCTAssertEqual(ctl2.state, .inactive)
+        XCTAssertNil(currentStore.load())
+    }
+
+    func testBootClosesLeftoverWhereEndTimeAlreadyOnNextDay() {
+        // Legacy shape from an earlier build: paused entry whose endTime has
+        // drifted past startTime's day. startTime still anchors the journal
+        // date, so the row is attributed to startTime's day.
+        let cal = Calendar.current
+        var sc = DateComponents()
+        sc.year = 2026; sc.month = 4; sc.day = 18; sc.hour = 23; sc.minute = 26
+        let start = cal.date(from: sc)!
+        var ec = DateComponents()
+        ec.year = 2026; ec.month = 4; ec.day = 19; ec.hour = 7; ec.minute = 31
+        let end = cal.date(from: ec)!
+        let stale = CurrentEntry(startTime: start, client: "C", activity: "X",
+                                 status: .paused, endTime: end, pausedSeconds: 27000)
+        currentStore.save(stale)
+
+        let ctl2 = TimerController(journal: journal, currentStore: currentStore, now: end)
+        let entries = journal.readAll()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, cal.startOfDay(for: start))
+        XCTAssertEqual(entries[0].client, "C")
+        let expectedDuration = max(0, Int(end.timeIntervalSince(start)) - 27000)
+        XCTAssertEqual(entries[0].durationSeconds, expectedDuration)
+        XCTAssertEqual(ctl2.state, .inactive)
+        XCTAssertNil(currentStore.load())
+    }
+
+    // MARK: - Misc
+
     func testRecentCombosDeduped() {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = localNoon()
         ctl.startNew(client: "A", activity: "Dev", now: t0)
         ctl.stop(now: t0.addingTimeInterval(100))
         ctl.startNew(client: "B", activity: "Meeting", now: t0.addingTimeInterval(200))
