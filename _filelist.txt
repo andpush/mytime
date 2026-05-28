@@ -1,0 +1,20 @@
+./.build/arm64-apple-macosx/debug/MyTimePackageTests.derived/runner.swift
+./Tests/MyTimeTests/JournalTests.swift
+./Tests/MyTimeTests/TimerControllerTests.swift
+./Tests/MyTimeTests/ReportsTests.swift
+./Tests/MyTimeTests/CSVTests.swift
+./Package.swift
+./Sources/MyTime/Storage.swift
+./Sources/MyTime/ReportsWindow.swift
+./Sources/MyTime/TimerController.swift
+./Sources/MyTime/AutostartManager.swift
+./Sources/MyTime/NotificationManager.swift
+./Sources/MyTime/SleepMonitor.swift
+./Sources/MyTime/IdleMonitor.swift
+./Sources/MyTime/Dialogs.swift
+./Sources/MyTime/StatusItemController.swift
+./Sources/MyTime/Models.swift
+./Sources/MyTime/AppDelegate.swift
+./Sources/MyTime/main.swift
+./Sources/MyTime/Reports.swift
+      19 ./_filelist.txt
