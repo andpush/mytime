@@ -2,7 +2,7 @@
 
 **Title:** Minimize battery impact of always-on timers
 **Date:** 2026-05-28
-**Status:** Ready to build
+**Status:** Done (2026-05-28)
 **Target:** `TimerController`, `StatusItemController`, `AppDelegate`
 
 ## Goal

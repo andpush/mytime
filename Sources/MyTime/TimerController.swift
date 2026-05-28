@@ -4,11 +4,9 @@ import Combine
 final class TimerController: ObservableObject {
     @Published private(set) var state: TimerState = .inactive
     @Published private(set) var currentEntry: CurrentEntry? = nil
-    @Published private(set) var tickDate: Date = Date()
 
     let journal: Journal
     let currentStore: CurrentStore
-    private var ticker: Timer?
     private(set) var lastStopTime: Date
 
     init(journal: Journal = Journal(), currentStore: CurrentStore = CurrentStore(), now: Date = Date()) {
@@ -16,17 +14,6 @@ final class TimerController: ObservableObject {
         self.currentStore = currentStore
         self.lastStopTime = now
         recoverOnBoot(now: now)
-        startTicker()
-    }
-
-    // MARK: - Ticker (1s)
-    private func startTicker() {
-        ticker?.invalidate()
-        ticker = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async { self.tickDate = Date() }
-        }
-        RunLoop.main.add(ticker!, forMode: .common)
     }
 
     // MARK: - Boot recovery

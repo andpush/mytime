@@ -269,6 +269,21 @@ final class TimerControllerTests: XCTestCase {
         XCTAssertNil(currentStore.load())
     }
 
+    // MARK: - Display elapsed (cadence-independent)
+
+    /// Elapsed is a pure function of injected `now`, never accumulated from
+    /// ticks — so the display refresh cadence cannot affect recorded accuracy.
+    func testDisplayElapsedIsComputedFromNowNotTicks() {
+        let t0 = localNoon()
+        ctl.startNew(client: "A", now: t0)
+        // No ticking happens; elapsed still reflects wall-clock `now`.
+        XCTAssertEqual(ctl.displayElapsed(now: t0.addingTimeInterval(5)), 5)
+        XCTAssertEqual(ctl.displayElapsed(now: t0.addingTimeInterval(3600)), 3600)
+        // Pausing freezes elapsed at the pause moment regardless of later now.
+        ctl.pause(now: t0.addingTimeInterval(100))
+        XCTAssertEqual(ctl.displayElapsed(now: t0.addingTimeInterval(9999)), 100)
+    }
+
     // MARK: - Misc
 
     func testRecentCombosDeduped() {

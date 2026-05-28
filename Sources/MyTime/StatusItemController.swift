@@ -13,9 +13,14 @@ final class StatusItemController: NSObject {
     var openReports: (() -> Void)?
     var openJournal: (() -> Void)?
     var quitApp: (() -> Void)?
+    /// Called on each display tick while a timer is active (e.g. pomodoro check).
+    var onTick: (() -> Void)?
 
     private var menu: NSMenu!
-    private var uiTimer: Timer?
+    /// Repeating 5s timer that refreshes the tray title and fires `onTick`.
+    /// Exists only while the timer is `.active`; nil otherwise.
+    private var tickTimer: Timer?
+    private static let tickInterval: TimeInterval = 5.0
 
     init(controller: TimerController, configStore: ConfigStore, notif: NotificationManager, config: AppConfig) {
         self.controller = controller
@@ -37,19 +42,13 @@ final class StatusItemController: NSObject {
         menu.delegate = self
         statusItem.menu = menu
         refreshTitle()
-        startUITicker()
-    }
-
-    private func startUITicker() {
-        uiTimer?.invalidate()
-        uiTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.refreshTitle()
-        }
-        RunLoop.main.add(uiTimer!, forMode: .common)
     }
 
     func setConfig(_ cfg: AppConfig) { self.config = cfg }
 
+    /// Refresh the tray title and align the tick timer's lifetime to `.active`.
+    /// The title only changes while active (paused elapsed is frozen, inactive
+    /// is empty), so the periodic timer runs only then.
     func refreshTitle() {
         guard let button = statusItem.button else { return }
         let s = controller.state
@@ -62,6 +61,22 @@ final class StatusItemController: NSObject {
             button.title = " \(elapsedStr)"
         case .paused:
             button.title = " ⏸ \(elapsedStr)"
+        }
+        syncTickTimer(active: s == .active)
+    }
+
+    private func syncTickTimer(active: Bool) {
+        if active {
+            guard tickTimer == nil else { return }
+            let t = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { [weak self] _ in
+                self?.refreshTitle()
+                self?.onTick?()
+            }
+            RunLoop.main.add(t, forMode: .common)
+            tickTimer = t
+        } else {
+            tickTimer?.invalidate()
+            tickTimer = nil
         }
     }
 

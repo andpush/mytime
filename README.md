@@ -1,6 +1,7 @@
 # MyTime
 
-A lightweight macOS menu bar time-tracking app. See `FUNCTIONAL_SPEC.md`.
+A lightweight macOS menu bar time-tracking app. See `PRODUCT.md` (what/why),
+`ARCHITECTURE.md` (how it's built), and `FUNCTIONAL_SPEC.md` (behavior).
 
 ## Build & run
 

@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var lastIdlePauseTriggered: Bool = false
     private var reminderTimer: Timer?
-    private var pomodoroWatch: Timer?
     private var heartbeatTimer: Timer?
 
     override init() {
@@ -45,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusCtl.openReports = { [weak self] in self?.showReports() }
         statusCtl.openJournal = { [weak self] in self?.openJournalInDefaultApp() }
         statusCtl.quitApp = { NSApp.terminate(nil) }
+        statusCtl.onTick = { [weak self] in self?.checkPomodoro() }
 
         reportsCtl = ReportsWindowController(journal: journal)
 
@@ -63,11 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(reminderTimer!, forMode: .common)
 
-        // Pomodoro watcher
-        pomodoroWatch = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.checkPomodoro()
-        }
-        RunLoop.main.add(pomodoroWatch!, forMode: .common)
+        // Pomodoro is checked from the status item's active-only display tick
+        // (statusCtl.onTick), so no dedicated 1s timer is needed.
 
         // Crash-recovery heartbeat
         scheduleHeartbeat()
