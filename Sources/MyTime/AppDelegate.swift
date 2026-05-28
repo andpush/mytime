@@ -110,13 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.controller.startNew(client: c, activity: a)
                 self?.statusCtl.refreshTitle()
                 windowRef?.close()
-                self?.startWindow = nil
             },
-            onCancel: { [weak self] in
+            onCancel: {
                 windowRef?.close()
-                self?.startWindow = nil
             })
-        let w = DialogWindow.show(title: "Start New Timer", view: view)
+        let w = DialogWindow.show(title: "Start New Timer", view: view) { [weak self] in
+            self?.startWindow = nil
+        }
         windowRef = w
         startWindow = w
     }
@@ -127,10 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.makeKeyAndOrderFront(nil)
             return
         }
-        var windowRef: NSWindow?
         let view = SettingsView(
             config: config,
-            onSave: { [weak self] cfg in
+            onChange: { [weak self] cfg in
                 guard let self = self else { return }
                 let autostartChanged = cfg.launchAtLogin != self.config.launchAtLogin
                 let heartbeatChanged = cfg.heartbeatMinutes != self.config.heartbeatMinutes
@@ -143,15 +142,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if heartbeatChanged {
                     self.scheduleHeartbeat()
                 }
-                windowRef?.close()
-                self.settingsWindow = nil
-            },
-            onCancel: { [weak self] in
-                windowRef?.close()
-                self?.settingsWindow = nil
             })
-        let w = DialogWindow.show(title: "MyTime Settings", view: view)
-        windowRef = w
+        let w = DialogWindow.show(title: "MyTime Settings", view: view) { [weak self] in
+            self?.settingsWindow = nil
+        }
         settingsWindow = w
     }
 

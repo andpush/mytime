@@ -1,5 +1,6 @@
-import SwiftUI
 import AppKit
+import ObjectiveC
+import SwiftUI
 
 // MARK: - Start Timer Dialog
 
@@ -86,7 +87,8 @@ struct ComboBoxField: NSViewRepresentable {
 
         func comboBoxSelectionDidChange(_ notification: Notification) {
             guard let box = notification.object as? NSComboBox,
-                  let selected = box.objectValueOfSelectedItem as? String else { return }
+                let selected = box.objectValueOfSelectedItem as? String
+            else { return }
             parent.text = selected
         }
     }
@@ -96,8 +98,7 @@ struct ComboBoxField: NSViewRepresentable {
 
 struct SettingsView: View {
     @State var config: AppConfig
-    var onSave: (AppConfig) -> Void
-    var onCancel: () -> Void
+    var onChange: (AppConfig) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -112,10 +113,12 @@ struct SettingsView: View {
                             Text("\(config.pomodoroWorkMinutes)")
                         }
                     }.disabled(!config.pomodoroEnabled)
-                    Text("When enabled, the active timer auto-stops after this many minutes and a notification tells you the work interval is over.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "When enabled, the active timer auto-stops after this many minutes and a notification tells you the work interval is over."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
 
@@ -128,10 +131,12 @@ struct SettingsView: View {
                                 Text("\(config.remindTrackingMinutes)")
                             }
                         }
-                        Text("If no timer has been active for this long, show a notification reminding you to start tracking.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            "If no timer has been active for this long, show a notification reminding you to start tracking."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
@@ -140,10 +145,12 @@ struct SettingsView: View {
                                 Text("\(config.idleToPauseMinutes)")
                             }
                         }
-                        Text("If you stop using the computer for this long, the active timer is paused automatically (also on sleep / closing the lid).")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            "If you stop using the computer for this long, the active timer is paused automatically (also on sleep / closing the lid)."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }.padding(8)
             }
@@ -151,10 +158,12 @@ struct SettingsView: View {
             GroupBox(label: Text("Startup")) {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Launch MyTime at login", isOn: $config.launchAtLogin)
-                    Text("Installs a per-user LaunchAgent so MyTime starts automatically when you log in.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "Installs a per-user LaunchAgent so MyTime starts automatically when you log in."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
 
@@ -166,30 +175,50 @@ struct SettingsView: View {
                             Text("\(config.heartbeatMinutes)")
                         }
                     }
-                    Text("While a timer is active, the last-known-alive time is saved to current.csv at this interval so tracking can be recovered after a crash or power loss.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "While a timer is active, the last-known-alive time is saved to current.csv at this interval so tracking can be recovered after a crash or power loss."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-                Button("Save") { onSave(config) }.keyboardShortcut(.defaultAction)
-            }
         }
         .padding(20)
         .frame(width: 420)
+        .onChange(of: config) { newConfig in
+            onChange(newConfig)
+        }
     }
 }
 
 // MARK: - Dialog window helper
 
+private var dialogWindowCloseObserverKey: UInt8 = 0
+
+private final class DialogWindowCloseObserver: NSObject, NSWindowDelegate {
+    let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
+    }
+}
+
 final class DialogWindow {
-    static func show<V: View>(title: String, view: V) -> NSWindow {
+    static func show<V: View>(title: String, view: V, onClose: (() -> Void)? = nil) -> NSWindow {
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
+        if let onClose {
+            let observer = DialogWindowCloseObserver(onClose: onClose)
+            window.delegate = observer
+            objc_setAssociatedObject(
+                window, &dialogWindowCloseObserverKey, observer, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
         window.title = title
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
