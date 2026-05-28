@@ -108,9 +108,29 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private func post(id: String, content: UNMutableNotificationContent) {
         guard authorized else { return }
         content.sound = .default
+        if let attachment = hourglassAttachment() { content.attachments = [attachment] }
         let req = UNNotificationRequest(identifier: id + "-" + UUID().uuidString,
                                         content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+    }
+
+    private func hourglassAttachment() -> UNNotificationAttachment? {
+        guard let symbol = NSImage(systemSymbolName: "hourglass", accessibilityDescription: nil) else { return nil }
+        let size = CGSize(width: 64, height: 64)
+        let rendered = NSImage(size: size)
+        rendered.lockFocus()
+        NSColor.white.withAlphaComponent(0).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        let inset = NSRect(x: 8, y: 8, width: 48, height: 48)
+        symbol.draw(in: inset)
+        rendered.unlockFocus()
+        guard let tiff = rendered.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mytime-hourglass.png")
+        try? png.write(to: url)
+        return try? UNNotificationAttachment(identifier: "hourglass", url: url, options: nil)
     }
 
     // MARK: - Delegate

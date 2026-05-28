@@ -34,7 +34,7 @@ final class StatusItemController: NSObject {
     private func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "MyTime")
+            button.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "MyTime")
             button.imagePosition = .imageLeading
             button.title = ""
         }
