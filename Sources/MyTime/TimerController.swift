@@ -138,23 +138,15 @@ final class TimerController: ObservableObject {
     }
 
     func knownActivities(forClient client: String) -> [String] {
-        guard !client.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return knownActivities()
+        let trimmed = client.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return knownActivities() }
+        var seen = Set<String>()
+        var out: [String] = []
+        for e in journal.readAll().reversed() {
+            guard !e.activity.isEmpty, e.client == trimmed else { continue }
+            if seen.insert(e.activity).inserted { out.append(e.activity) }
         }
-        let entries = journal.readAll().reversed()
-        var clientSeen = Set<String>()
-        var clientActivities: [String] = []
-        var allSeen = Set<String>()
-        var otherActivities: [String] = []
-        for e in entries {
-            guard !e.activity.isEmpty else { continue }
-            if e.client == client {
-                if clientSeen.insert(e.activity).inserted { clientActivities.append(e.activity) }
-            }
-            if allSeen.insert(e.activity).inserted { otherActivities.append(e.activity) }
-        }
-        let clientSet = Set(clientActivities)
-        return clientActivities + otherActivities.filter { !clientSet.contains($0) }
+        return out.isEmpty ? knownActivities() : out
     }
 
     // MARK: - Commands

@@ -301,24 +301,20 @@ final class TimerControllerTests: XCTestCase {
 
     // MARK: - knownActivities(forClient:)
 
-    func testKnownActivitiesForClientScopedFirst() {
+    func testKnownActivitiesForClientScopedOnly() {
         let t0 = localNoon()
-        // Alpha used with ClientA (oldest)
         ctl.startNew(client: "ClientA", activity: "Alpha", now: t0)
         ctl.stop(now: t0.addingTimeInterval(100))
-        // Beta used with ClientB
         ctl.startNew(client: "ClientB", activity: "Beta", now: t0.addingTimeInterval(200))
         ctl.stop(now: t0.addingTimeInterval(300))
-        // Gamma used with ClientA (most recent)
         ctl.startNew(client: "ClientA", activity: "Gamma", now: t0.addingTimeInterval(400))
         ctl.stop(now: t0.addingTimeInterval(500))
 
         let acts = ctl.knownActivities(forClient: "ClientA")
-        // Client-scoped activities come first, most-recent-first
-        XCTAssertEqual(acts.prefix(2).map { $0 }, ["Gamma", "Alpha"])
-        // Beta (used with ClientB only) is appended after
-        XCTAssertTrue(acts.contains("Beta"))
-        XCTAssertGreaterThan(acts.firstIndex(of: "Beta")!, acts.firstIndex(of: "Alpha")!)
+        // Only ClientA activities, most-recent-first
+        XCTAssertEqual(acts, ["Gamma", "Alpha"])
+        // Beta (ClientB only) must not appear
+        XCTAssertFalse(acts.contains("Beta"))
     }
 
     func testKnownActivitiesForClientExcludesEmpty() {

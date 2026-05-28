@@ -17,10 +17,10 @@ final class StatusItemController: NSObject {
     var onTick: (() -> Void)?
 
     private var menu: NSMenu!
-    /// Repeating 5s timer that refreshes the tray title and fires `onTick`.
+    /// Repeating 1s timer that refreshes the tray title and fires `onTick`.
     /// Exists only while the timer is `.active`; nil otherwise.
     private var tickTimer: Timer?
-    private static let tickInterval: TimeInterval = 5.0
+    private static let tickInterval: TimeInterval = 1.0
 
     init(controller: TimerController, configStore: ConfigStore, notif: NotificationManager, config: AppConfig) {
         self.controller = controller
@@ -34,7 +34,9 @@ final class StatusItemController: NSObject {
     private func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "MyTime")
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            button.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "MyTime")?
+                .withSymbolConfiguration(config)
             button.imagePosition = .imageLeading
             button.title = ""
         }
@@ -54,14 +56,23 @@ final class StatusItemController: NSObject {
         let s = controller.state
         let elapsed = controller.displayElapsed()
         let elapsedStr = formatElapsed(elapsed)
+        let label: String
         switch s {
         case .inactive:
-            button.title = ""
+            button.attributedTitle = NSAttributedString(string: "")
+            syncTickTimer(active: false)
+            return
         case .active:
-            button.title = " \(elapsedStr)"
-        case .paused:
-            button.title = " ⏸ \(elapsedStr)"
+            if config.pomodoroEnabled {
+                let remaining = max(0, config.pomodoroWorkMinutes * 60 - elapsed)
+                label = " 🍅 \(formatElapsed(remaining))"
+            } else {
+                label = " \(elapsedStr)"
+            }
+        case .paused:  label = " ⏸ \(elapsedStr)"
         }
+        let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        button.attributedTitle = NSAttributedString(string: label, attributes: [.font: font])
         syncTickTimer(active: s == .active)
     }
 
@@ -82,7 +93,8 @@ final class StatusItemController: NSObject {
 
     private func formatElapsed(_ s: Int) -> String {
         let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
-        return String(format: "%02d:%02d:%02d", h, m, sec)
+        if h > 0 { return "\(h):\(String(format: "%02d", m)):\(String(format: "%02d", sec))" }
+        return String(format: "%02d:%02d", m, sec)
     }
 
     // MARK: - Menu building

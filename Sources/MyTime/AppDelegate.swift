@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastIdlePauseTriggered: Bool = false
     private var reminderTimer: Timer?
     private var heartbeatTimer: Timer?
+    /// Start time of the entry pomodoro has already fired for, so resuming a
+    /// completed pomodoro doesn't immediately re-pause and re-notify.
+    private var lastPomodoroFiredStart: Date?
 
     override init() {
         self.config = configStore.load()
@@ -213,13 +216,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkPomodoro() {
         guard config.pomodoroEnabled,
               controller.state == .active,
-              let e = controller.currentEntry else { return }
+              let e = controller.currentEntry,
+              lastPomodoroFiredStart != e.startTime else { return }
         let threshold = config.pomodoroWorkMinutes * 60
         let elapsed = controller.displayElapsed()
         if elapsed >= threshold {
+            lastPomodoroFiredStart = e.startTime
             let client = e.client
             let activity = e.activity
-            controller.stop()
+            controller.pause()
             statusCtl.refreshTitle()
             notif.postPomodoroFinished(client: client, activity: activity)
         }
