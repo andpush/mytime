@@ -22,7 +22,10 @@ final class StatusItemController: NSObject {
     private var tickTimer: Timer?
     private static let tickInterval: TimeInterval = 1.0
 
-    init(controller: TimerController, configStore: ConfigStore, notif: NotificationManager, config: AppConfig) {
+    init(
+        controller: TimerController, configStore: ConfigStore, notif: NotificationManager,
+        config: AppConfig
+    ) {
         self.controller = controller
         self.configStore = configStore
         self.notif = notif
@@ -35,7 +38,8 @@ final class StatusItemController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            button.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "MyTime")?
+            button.image = NSImage(
+                systemSymbolName: "hourglass", accessibilityDescription: "MyTime")?
                 .withSymbolConfiguration(config)
             button.imagePosition = .imageLeading
             button.title = ""
@@ -69,7 +73,7 @@ final class StatusItemController: NSObject {
             } else {
                 label = " \(elapsedStr)"
             }
-        case .paused:  label = " ⏸ \(elapsedStr)"
+        case .paused: label = " ⏸ \(elapsedStr)"
         }
         let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         button.attributedTitle = NSAttributedString(string: label, attributes: [.font: font])
@@ -79,7 +83,8 @@ final class StatusItemController: NSObject {
     private func syncTickTimer(active: Bool) {
         if active {
             guard tickTimer == nil else { return }
-            let t = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { [weak self] _ in
+            let t = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) {
+                [weak self] _ in
                 self?.refreshTitle()
                 self?.onTick?()
             }
@@ -92,7 +97,9 @@ final class StatusItemController: NSObject {
     }
 
     private func formatElapsed(_ s: Int) -> String {
-        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        let h = s / 3600
+        let m = (s % 3600) / 60
+        let sec = s % 60
         if h > 0 { return "\(h):\(String(format: "%02d", m)):\(String(format: "%02d", sec))" }
         return String(format: "%02d:%02d", m, sec)
     }
@@ -105,7 +112,9 @@ final class StatusItemController: NSObject {
         let e = controller.currentEntry
 
         if !notif.authorized {
-            let item = NSMenuItem(title: "⚠️ Enable Notifications…", action: #selector(openNotifSettings), keyEquivalent: "")
+            let item = NSMenuItem(
+                title: "⚠️ Enable Notifications…", action: #selector(openNotifSettings),
+                keyEquivalent: "")
             item.target = self
             menu.addItem(item)
             menu.addItem(NSMenuItem.separator())
@@ -113,25 +122,32 @@ final class StatusItemController: NSObject {
 
         if s == .active, let e = e {
             let label = formatLabel(e)
-            let pauseItem = NSMenuItem(title: "⏸ Pause \(label)", action: #selector(pauseTimer), keyEquivalent: "")
-            pauseItem.target = self
-            menu.addItem(pauseItem)
-            let stopItem = NSMenuItem(title: "⏹ Stop \(label)", action: #selector(stopTimer), keyEquivalent: "")
+            if !config.pomodoroEnabled {
+                let pauseItem = NSMenuItem(
+                    title: "⏸ Pause \(label)", action: #selector(pauseTimer), keyEquivalent: "")
+                pauseItem.target = self
+                menu.addItem(pauseItem)
+            }
+            let stopItem = NSMenuItem(
+                title: "⏹ Stop \(label)", action: #selector(stopTimer), keyEquivalent: "")
             stopItem.target = self
             menu.addItem(stopItem)
             menu.addItem(NSMenuItem.separator())
         } else if s == .paused, let e = e {
             let label = formatLabel(e)
-            let resumeItem = NSMenuItem(title: "▶ Resume \(label)", action: #selector(resumeTimer), keyEquivalent: "")
+            let resumeItem = NSMenuItem(
+                title: "▶ Resume \(label)", action: #selector(resumeTimer), keyEquivalent: "")
             resumeItem.target = self
             menu.addItem(resumeItem)
-            let stopItem = NSMenuItem(title: "⏹ Stop \(label)", action: #selector(stopTimer), keyEquivalent: "")
+            let stopItem = NSMenuItem(
+                title: "⏹ Stop \(label)", action: #selector(stopTimer), keyEquivalent: "")
             stopItem.target = self
             menu.addItem(stopItem)
             menu.addItem(NSMenuItem.separator())
         }
 
-        let startNew = NSMenuItem(title: "▶ Start New Timer…", action: #selector(onStartNew), keyEquivalent: "n")
+        let startNew = NSMenuItem(
+            title: "▶ Start New Timer…", action: #selector(onStartNew), keyEquivalent: "n")
         startNew.target = self
         menu.addItem(startNew)
 
@@ -140,7 +156,9 @@ final class StatusItemController: NSObject {
             menu.addItem(NSMenuItem.separator())
             for r in recents {
                 let label = r.activity.isEmpty ? r.client : "\(r.client) - \(r.activity)"
-                let item = NSMenuItem(title: "▶ Start \(label)", action: #selector(onStartRecent(_:)), keyEquivalent: "")
+                let item = NSMenuItem(
+                    title: "▶ Start \(label)", action: #selector(onStartRecent(_:)),
+                    keyEquivalent: "")
                 item.target = self
                 item.representedObject = ["client": r.client, "activity": r.activity]
                 menu.addItem(item)
@@ -148,15 +166,18 @@ final class StatusItemController: NSObject {
         }
 
         menu.addItem(NSMenuItem.separator())
-        let showJournal = NSMenuItem(title: "Show Journal", action: #selector(onShowJournal), keyEquivalent: "j")
+        let showJournal = NSMenuItem(
+            title: "Show Journal", action: #selector(onShowJournal), keyEquivalent: "j")
         showJournal.target = self
         menu.addItem(showJournal)
-        let reports = NSMenuItem(title: "View Reports", action: #selector(onReports), keyEquivalent: "r")
+        let reports = NSMenuItem(
+            title: "View Reports", action: #selector(onReports), keyEquivalent: "r")
         reports.target = self
         menu.addItem(reports)
 
         menu.addItem(NSMenuItem.separator())
-        let settings = NSMenuItem(title: "Settings…", action: #selector(onSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(
+            title: "Settings…", action: #selector(onSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
         let quit = NSMenuItem(title: "Quit MyTime", action: #selector(onQuit), keyEquivalent: "q")
@@ -170,9 +191,18 @@ final class StatusItemController: NSObject {
 
     // MARK: - Actions
 
-    @objc private func pauseTimer() { controller.pause() ; refreshTitle() }
-    @objc private func resumeTimer() { controller.resume(); refreshTitle() }
-    @objc private func stopTimer() { controller.stop(); refreshTitle() }
+    @objc private func pauseTimer() {
+        controller.pause()
+        refreshTitle()
+    }
+    @objc private func resumeTimer() {
+        controller.resume()
+        refreshTitle()
+    }
+    @objc private func stopTimer() {
+        controller.stop()
+        refreshTitle()
+    }
     @objc private func onStartNew() { openStart?() }
     @objc private func onStartRecent(_ sender: NSMenuItem) {
         guard let info = sender.representedObject as? [String: String] else { return }

@@ -95,7 +95,7 @@ Semantics per state:
 ## Main Menu Structure
 
 ```ui
-⏸ Pause ClientName - Label   (only when timer running; toggles to "▶ Resume ..." when paused)
+⏸ Pause ClientName - Label   (only when timer running and Pomodoro mode is off; toggles to "▶ Resume ..." when paused)
 ⏹ Stop ClientName - Label    (only when timer running)
 ─────────────────────
 ▶ Start New Timer...          (always visible; opens input dialog; auto-stops running timer)

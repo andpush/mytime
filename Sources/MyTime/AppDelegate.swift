@@ -40,8 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notif.onResumeTapped = { [weak self] in self?.resumeFromNotif() }
         notif.onStopTapped = { [weak self] in self?.stopFromNotif() }
 
-        statusCtl = StatusItemController(controller: controller, configStore: configStore,
-                                         notif: notif, config: config)
+        statusCtl = StatusItemController(
+            controller: controller, configStore: configStore,
+            notif: notif, config: config)
         statusCtl.openStart = { [weak self] in self?.showStartDialog() }
         statusCtl.openSettings = { [weak self] in self?.showSettingsDialog() }
         statusCtl.openReports = { [weak self] in self?.showReports() }
@@ -79,7 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         heartbeatTimer?.invalidate()
         let minutes = max(1, min(60, config.heartbeatMinutes))
         let interval = TimeInterval(minutes * 60)
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) {
+            [weak self] _ in
             self?.controller.heartbeat()
         }
         if let t = heartbeatTimer {
@@ -90,50 +92,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu handlers
 
     private func showStartDialog() {
-        if let w = startWindow { NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil); return }
+        if let w = startWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+            return
+        }
         let clients = controller.knownClients()
         let activities = controller.knownActivities()
         var windowRef: NSWindow?
         let view = StartTimerView(
             clients: clients,
             activities: activities,
-            activitiesForClient: { [weak self] client in self?.controller.knownActivities(forClient: client) ?? [] },
+            activitiesForClient: { [weak self] client in
+                self?.controller.knownActivities(forClient: client) ?? []
+            },
             onStart: { [weak self] c, a in
-            self?.controller.startNew(client: c, activity: a)
-            self?.statusCtl.refreshTitle()
-            windowRef?.close()
-            self?.startWindow = nil
-        }, onCancel: { [weak self] in
-            windowRef?.close()
-            self?.startWindow = nil
-        })
+                self?.controller.startNew(client: c, activity: a)
+                self?.statusCtl.refreshTitle()
+                windowRef?.close()
+                self?.startWindow = nil
+            },
+            onCancel: { [weak self] in
+                windowRef?.close()
+                self?.startWindow = nil
+            })
         let w = DialogWindow.show(title: "Start New Timer", view: view)
         windowRef = w
         startWindow = w
     }
 
     private func showSettingsDialog() {
-        if let w = settingsWindow { NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil); return }
+        if let w = settingsWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+            return
+        }
         var windowRef: NSWindow?
-        let view = SettingsView(config: config, onSave: { [weak self] cfg in
-            guard let self = self else { return }
-            let autostartChanged = cfg.launchAtLogin != self.config.launchAtLogin
-            let heartbeatChanged = cfg.heartbeatMinutes != self.config.heartbeatMinutes
-            self.config = cfg
-            self.configStore.save(cfg)
-            self.statusCtl.setConfig(cfg)
-            if autostartChanged {
-                self.autostart.apply(enabled: cfg.launchAtLogin)
-            }
-            if heartbeatChanged {
-                self.scheduleHeartbeat()
-            }
-            windowRef?.close()
-            self.settingsWindow = nil
-        }, onCancel: { [weak self] in
-            windowRef?.close()
-            self?.settingsWindow = nil
-        })
+        let view = SettingsView(
+            config: config,
+            onSave: { [weak self] cfg in
+                guard let self = self else { return }
+                let autostartChanged = cfg.launchAtLogin != self.config.launchAtLogin
+                let heartbeatChanged = cfg.heartbeatMinutes != self.config.heartbeatMinutes
+                self.config = cfg
+                self.configStore.save(cfg)
+                self.statusCtl.setConfig(cfg)
+                if autostartChanged {
+                    self.autostart.apply(enabled: cfg.launchAtLogin)
+                }
+                if heartbeatChanged {
+                    self.scheduleHeartbeat()
+                }
+                windowRef?.close()
+                self.settingsWindow = nil
+            },
+            onCancel: { [weak self] in
+                windowRef?.close()
+                self?.settingsWindow = nil
+            })
         let w = DialogWindow.show(title: "MyTime Settings", view: view)
         windowRef = w
         settingsWindow = w
@@ -175,8 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller.pause(now: pausedAt)
                 statusCtl.refreshTitle()
                 if let e = controller.currentEntry {
-                    notif.postAutoPause(reason: .idle(minutes: Int(seconds / 60)),
-                                        client: e.client, activity: e.activity)
+                    notif.postAutoPause(
+                        reason: .idle(minutes: Int(seconds / 60)),
+                        client: e.client, activity: e.activity)
                 }
             }
         } else if seconds < threshold {
@@ -207,7 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let interval = TimeInterval(max(1, config.remindTrackingMinutes) * 60)
         let since = controller.secondsSinceActive()
         if Double(since) >= interval,
-           Date().timeIntervalSince(lastReminderAt) >= interval {
+            Date().timeIntervalSince(lastReminderAt) >= interval
+        {
             notif.postRemind()
             lastReminderAt = Date()
         }
@@ -215,16 +233,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func checkPomodoro() {
         guard config.pomodoroEnabled,
-              controller.state == .active,
-              let e = controller.currentEntry,
-              lastPomodoroFiredStart != e.startTime else { return }
+            controller.state == .active,
+            let e = controller.currentEntry,
+            lastPomodoroFiredStart != e.startTime
+        else { return }
         let threshold = config.pomodoroWorkMinutes * 60
         let elapsed = controller.displayElapsed()
         if elapsed >= threshold {
             lastPomodoroFiredStart = e.startTime
             let client = e.client
             let activity = e.activity
-            controller.pause()
+            controller.stop()
             statusCtl.refreshTitle()
             notif.postPomodoroFinished(client: client, activity: activity)
         }
