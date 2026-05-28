@@ -298,4 +298,58 @@ final class TimerControllerTests: XCTestCase {
         XCTAssertEqual(recents.count, 2)
         XCTAssertEqual(recents[0].client, "A")
     }
+
+    // MARK: - knownActivities(forClient:)
+
+    func testKnownActivitiesForClientScopedFirst() {
+        let t0 = localNoon()
+        // Alpha used with ClientA (oldest)
+        ctl.startNew(client: "ClientA", activity: "Alpha", now: t0)
+        ctl.stop(now: t0.addingTimeInterval(100))
+        // Beta used with ClientB
+        ctl.startNew(client: "ClientB", activity: "Beta", now: t0.addingTimeInterval(200))
+        ctl.stop(now: t0.addingTimeInterval(300))
+        // Gamma used with ClientA (most recent)
+        ctl.startNew(client: "ClientA", activity: "Gamma", now: t0.addingTimeInterval(400))
+        ctl.stop(now: t0.addingTimeInterval(500))
+
+        let acts = ctl.knownActivities(forClient: "ClientA")
+        // Client-scoped activities come first, most-recent-first
+        XCTAssertEqual(acts.prefix(2).map { $0 }, ["Gamma", "Alpha"])
+        // Beta (used with ClientB only) is appended after
+        XCTAssertTrue(acts.contains("Beta"))
+        XCTAssertGreaterThan(acts.firstIndex(of: "Beta")!, acts.firstIndex(of: "Alpha")!)
+    }
+
+    func testKnownActivitiesForClientExcludesEmpty() {
+        let t0 = localNoon()
+        ctl.startNew(client: "ClientA", activity: "", now: t0)
+        ctl.stop(now: t0.addingTimeInterval(100))
+        ctl.startNew(client: "ClientA", activity: "Alpha", now: t0.addingTimeInterval(200))
+        ctl.stop(now: t0.addingTimeInterval(300))
+
+        let acts = ctl.knownActivities(forClient: "ClientA")
+        XCTAssertFalse(acts.contains(""))
+        XCTAssertEqual(acts, ["Alpha"])
+    }
+
+    func testKnownActivitiesForUnknownClientFallsBackToAll() {
+        let t0 = localNoon()
+        ctl.startNew(client: "ClientA", activity: "Alpha", now: t0)
+        ctl.stop(now: t0.addingTimeInterval(100))
+        ctl.startNew(client: "ClientB", activity: "Beta", now: t0.addingTimeInterval(200))
+        ctl.stop(now: t0.addingTimeInterval(300))
+
+        let fallback = ctl.knownActivities(forClient: "UnknownClient")
+        XCTAssertEqual(fallback, ctl.knownActivities())
+    }
+
+    func testKnownActivitiesForEmptyClientFallsBackToAll() {
+        let t0 = localNoon()
+        ctl.startNew(client: "ClientA", activity: "Alpha", now: t0)
+        ctl.stop(now: t0.addingTimeInterval(100))
+
+        let fallback = ctl.knownActivities(forClient: "")
+        XCTAssertEqual(fallback, ctl.knownActivities())
+    }
 }

@@ -2,7 +2,7 @@
 
 **Title:** Start New Timer — native combo-box dropdowns for prior client/activity values
 **Date:** 2026-05-28
-**Status:** Ready to build
+**Status:** Done (2026-05-28)
 **Target:** Dialogs (`Dialogs.swift`), Timer engine (`TimerController.swift`), App coordinator (`AppDelegate.swift`)
 
 ## Goal

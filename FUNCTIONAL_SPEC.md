@@ -118,9 +118,9 @@ NOTE: Only one timer can be active at any given time.
 **Behavior:**
 
 1. If there is already running or paused timer - auto-stop it imlicitly with all due calculations and journal updates.
-2. Show lightweight dialog with input fields:
-    - **Client** (required) - Text field with autocomplete from existing clients
-    - **Activity** (optional) - Text field with autocomplete
+2. Show lightweight dialog with two native combo-box fields (`NSComboBox`):
+    - **Client** (required) — free-text entry with a chevron dropdown listing all prior clients (most-recent-first). Receives keyboard focus when the dialog opens.
+    - **Activity** (optional) — free-text entry with a chevron dropdown listing activities previously used with the selected client first (most-recent-first), followed by any remaining known activities. List is re-scoped live as the client value changes. A brand-new client or activity not in history can always be typed in.
 3. Write new `current.csv` with `STATUS=active`, `END_TIME=START_TIME`, `PAUSED_SECONDS=0`
 4. Update app state to reflect running timer
 

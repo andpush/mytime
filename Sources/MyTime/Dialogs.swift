@@ -6,6 +6,7 @@ import AppKit
 struct StartTimerView: View {
     let clients: [String]
     let activities: [String]
+    let activitiesForClient: (String) -> [String]
     var onStart: (String, String) -> Void
     var onCancel: () -> Void
 
@@ -16,8 +17,14 @@ struct StartTimerView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Start New Timer").font(.headline)
 
-            AutocompleteField(title: "Client", text: $client, suggestions: clients)
-            AutocompleteField(title: "Activity (optional)", text: $activity, suggestions: activities)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Client").font(.caption).foregroundColor(.secondary)
+                ComboBoxField(text: $client, suggestions: clients, isFocusedOnAppear: true)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Activity (optional)").font(.caption).foregroundColor(.secondary)
+                ComboBoxField(text: $activity, suggestions: activitiesForClient(client))
+            }
 
             HStack {
                 Spacer()
@@ -36,37 +43,51 @@ struct StartTimerView: View {
     }
 }
 
-struct AutocompleteField: View {
-    let title: String
-    @Binding var text: String
-    let suggestions: [String]
+// MARK: - ComboBoxField
 
-    var filtered: [String] {
-        let t = text.lowercased()
-        if t.isEmpty { return Array(suggestions.prefix(5)) }
-        return suggestions.filter { $0.lowercased().contains(t) && $0.lowercased() != t }.prefix(5).map { $0 }
+struct ComboBoxField: NSViewRepresentable {
+    @Binding var text: String
+    var suggestions: [String]
+    var isFocusedOnAppear: Bool = false
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSComboBox {
+        let box = NSComboBox()
+        box.completes = true
+        box.usesDataSource = false
+        box.delegate = context.coordinator
+        box.addItems(withObjectValues: suggestions)
+        box.stringValue = text
+        if isFocusedOnAppear {
+            DispatchQueue.main.async { box.window?.makeFirstResponder(box) }
+        }
+        return box
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundColor(.secondary)
-            TextField(title, text: $text)
-                .textFieldStyle(.roundedBorder)
-            if !filtered.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(filtered, id: \.self) { s in
-                            Button(action: { text = s }) {
-                                Text(s).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2).padding(.horizontal, 6)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxHeight: 80)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(4)
-            }
+    func updateNSView(_ box: NSComboBox, context: Context) {
+        // Rebuild list when suggestions change (client re-scope)
+        let current = box.objectValues as? [String] ?? []
+        if current != suggestions {
+            box.removeAllItems()
+            box.addItems(withObjectValues: suggestions)
+        }
+        if box.stringValue != text { box.stringValue = text }
+    }
+
+    final class Coordinator: NSObject, NSComboBoxDelegate {
+        var parent: ComboBoxField
+        init(_ parent: ComboBoxField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let box = obj.object as? NSComboBox else { return }
+            parent.text = box.stringValue
+        }
+
+        func comboBoxSelectionDidChange(_ notification: Notification) {
+            guard let box = notification.object as? NSComboBox,
+                  let selected = box.objectValueOfSelectedItem as? String else { return }
+            parent.text = selected
         }
     }
 }

@@ -91,7 +91,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let clients = controller.knownClients()
         let activities = controller.knownActivities()
         var windowRef: NSWindow?
-        let view = StartTimerView(clients: clients, activities: activities, onStart: { [weak self] c, a in
+        let view = StartTimerView(
+            clients: clients,
+            activities: activities,
+            activitiesForClient: { [weak self] client in self?.controller.knownActivities(forClient: client) ?? [] },
+            onStart: { [weak self] c, a in
             self?.controller.startNew(client: c, activity: a)
             self?.statusCtl.refreshTitle()
             windowRef?.close()
